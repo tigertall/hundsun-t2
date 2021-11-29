@@ -221,8 +221,7 @@ public class T2Sampler extends AbstractSampler implements TestStateListener,Inte
         SampleResult res = new SampleResult();
         res.setSuccessful(false); // Assume failure
         res.setSampleLabel(getName());
-        
-        final boolean saveResponse = isSaveResponse();
+        boolean saveResponse = isSaveResponse();
 
         // 有数据才进行数据填充
         dataMap.clear();
@@ -246,6 +245,10 @@ public class T2Sampler extends AbstractSampler implements TestStateListener,Inte
 
         event.putEventData(dataset);
 
+        if (saveResponse) {
+            res.setSamplerData(getLabel());
+        }
+
         res.sampleStart();
 
         try
@@ -259,7 +262,6 @@ public class T2Sampler extends AbstractSampler implements TestStateListener,Inte
         }catch (T2SDKException ex) {
             res.setResponseCode("999");
             res.setResponseMessage(ex.toString());
-            res.setResponseData(ex.toString(), null);
             log.error(String.format("sampler exception, func: %s, info: %s", getFunctionNo(), ex.getErrorInfo()));
             return res;
         }
@@ -267,20 +269,27 @@ public class T2Sampler extends AbstractSampler implements TestStateListener,Inte
         res.latencyEnd();
         res.sampleEnd();
         //先判断返回值
+        String retErrorNo = rsp.getErrorNo();
         int iReturnCode = rsp.getReturnCode();
-        res.setResponseCode(Integer.toString(iReturnCode));
-        if(iReturnCode !=  EventReturnCode.I_OK){ //返回错误
-            res.setResponseMessage(rsp.getReturnCode() + "|" + rsp.getErrorNo() + "|" + rsp.getErrorInfo());
-            // 失败的不管是否选择了记录，都要记录应答，方便查错误
-            res.setSamplerData(getLabel());
-            saveResponse(res, rsp);
+        String respCode = "0";
+
+        if (!retErrorNo.equals("0")) {  // 先判断T2错误
+            saveResponse = true; // 失败的不管是否选择了记录，都要记录应答，方便查错误
+            respCode = retErrorNo;
+        } else if(iReturnCode != EventReturnCode.I_OK) { // 再判断业务错误
+            saveResponse = true;
+            respCode = Integer.toString(iReturnCode);
         } else {
             res.setSuccessful(true);
-            if (saveResponse) {
-                res.setSamplerData(getLabel());
-                saveResponse(res, rsp);
-            }
         }
+
+        res.setResponseCode(respCode);
+        res.setResponseMessage(rsp.getErrorInfo());
+
+        if (saveResponse) {
+            saveResponse(res, rsp);
+        }
+
         return res;
     }
     
@@ -291,7 +300,6 @@ public class T2Sampler extends AbstractSampler implements TestStateListener,Inte
 		//获得结果集总数
 		int datasetCount = result.getDatasetCount();
 		//遍历所有的结果集
-		
 		for (int i = 0; i < datasetCount; i++) {
             responeData.append("\n").append("dataset - ").append(i).append("\n");
 			// 开始读取单个结果集的信息
